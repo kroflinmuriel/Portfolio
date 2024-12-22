@@ -1,0 +1,75 @@
+param T:= 12; #number total teams
+
+param d {a in 1..T, h in 1..T} >= 0;
+
+param N:= 6; #number North Division teams
+
+param W:= 9; #number weeks
+
+param SMin := 7; #start index South Division teams
+
+param SMax := 12; #end index South Division teams
+
+var x {a in 1..T, h in 1..T, w in 1..W} binary; #team a plays at team h in week w
+
+# Minimize the average distance traveled for out-of-division games by each team
+minimize AverageDistance:
+    (1 / T) * sum {t in 1..T} (
+        sum {h in 1..T, w in 1..W: (t <= 6 and h > 6) or (t > 6 and h <= 6)} 
+        d[t, h] * x[t, h, w]
+    );
+
+s.t. PlaySelf {t in 1..T, w in 1..W}: #team can not play itself
+	x[t, t, w] = 0;
+
+s.t. OneGamePerWeek {t in 1..T, w in 1..W}: #each team plays one game per week
+    sum {h in 1..T: h != t} x[t, h, w] + sum {a in 1..T: a != t} x[a, t, w] <= 1;
+
+s.t. OneByePerSeason {t in 1..T}: #each team has one bye per season
+    sum {w in 1..W} (sum {h in 1..T: h != t} x[t, h, w] + sum {a in 1..T: a != t} x[a, t, w]) = W - 1;
+
+s.t. NorthPlaysEachOther {a in 1..N, h in a+1..N}: #each team in North plays each other
+    sum {w in 1..W} (x[a, h, w] + x[h, a, w]) >= 1;
+
+s.t. SouthPlaysEachOther {a in SMin..SMax, h in a+1..SMax}: #each team in South plays each other
+    sum {w in 1..W} (x[a, h, w] + x[h, a, w]) >= 1;
+
+s.t. AtMostOneGame {a in 1..T, h in a+1..T}: #teams do not play twice
+    sum {w in 1..W} (x[a, h, w] + x[h, a, w]) <= 1;
+
+s.t. LimitBackToBackAway {a in 1..T}: #teams do not have more than 1 back to back road trip
+    sum {w in 1..W-2} (sum {h in 1..T} x[a, h, w] * sum {h2 in 1..T} x[a, h2, w+1]) <= 1;
+
+s.t. NoTwoAwayGamesStart {a in 1..T}: #no team starts with back to back road games
+    sum {h in 1..T} (x[a, h, 1] + x[a, h, 2]) <= 1;
+
+s.t. NoTwoAwayGamesEnd {a in 1..T}: #no team ends with back to back road games
+    sum {h in 1..T} (x[a, h, W-1] + x[a, h, W]) <= 1;
+
+s.t. DifferentWeeksGames {w in 1..W}:
+       ((x[3, 5, w] + x[5, 3, w]) +
+        (x[7, 8, w] + x[8, 7, w]) + 
+        (x[9, 10, w] + x[10, 9, w]) +
+        (x[11, 12, w] + x[12, 11, w])
+    ) <= 1; # Ensure that games between the given pairs of teams occur on different weeks
+
+s.t. FourHomeGames {h in 1..T}: #every team plays 4 home games
+    sum {a in 1..T, w in 1..W} x[a, h, w] = 4;
+
+s.t. DivisionHomeGames {h in 1..T}: # every team plays 2 or 3 home division games
+    sum {a in 1..T, w in 1..W: (a <= N and h <= N) or (a >= SMin and h >= SMin)} x[a, h, w] = 2 or sum {a in 1..T, w in 1..W: (a <= N and h <= N) or (a >= SMin and h >= SMin)} x[a, h, w] = 3;
+
+s.t. ByeWeeksInRange {t in 1..T}: #bye weeks happen in weeks 3-7
+    sum {w in 3..7} (1 - sum {h in 1..T: h != t} x[t, h, w] - sum {a in 1..T: a != t} x[a, t, w]) = 1;
+
+
+
+
+
+
+
+
+
+
+
+

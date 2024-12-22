@@ -1,0 +1,641 @@
+
+---
+title: "ML_Script"
+output: html_document
+date: "2024-11-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Load the workspace (All files at one point in time)
+
+# We need to make sure to keep the workspace clean (Use rm to delete files) so that this is a small enough file to add to github
+```{r}
+ load("ML_Workspace.RData")
+
+```
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(car)
+library(dplyr)
+
+options(scipen = 999)
+options(digits = 6)
+```
+
+
+# File Description
+The point of the file is to contain the code we use for training our models. We will be predicting risk score using other columns.
+
+There will also be an accompanying RData file so that trained versions of the models can be loaded in quite easily. Make sure to update it before commiting please.
+
+#Small Data Prep
+We need to drop the column risk value since this would be essentially predicting our column of interest from itself.
+
+```{r}
+#get logged and scaled data
+df = read.csv('MLData.csv')
+
+# Exclude columns with "EAL" in their names
+df <- df[, !grepl("EAL", colnames(df))]
+
+df <- df[, !grepl("_AREA", colnames(df))]
+
+df <- df[, !grepl("_EXPB", colnames(df))]
+
+df <- df[, !grepl("_EXPP", colnames(df))]
+
+
+
+#drop risk score
+df = df %>%
+  dplyr::select(-RISK_VALUE, -STCOFIPS, -STATE, -CFLD_EVNTS, -ERQK_EVNTS, -WFIR_EVNTS, -STATEABBRV, -SOVI_RATNG, -FEMALE_POP, -HISPANIC_LATINO_POP,
+                -MALE_POP, -OCCUPIED_HOUSING_UNITS, -OWNER_OCCUPIED_HOUSING_UNITS, -TOTAL_HOUSING_UNITS, -NAME, -X75_84_POP, -X65_74_POP, -X60_64_POP, -X10_14_POP, -X55_59_POP, -X25_34_POP, -X45_54_POP, -X35_44_POP, -ERQK_EXPT, -HAIL_EXPT, -SWND_EXPT, -TRND_EXPT, -VLCN_EXPT)
+
+# -TOT_POP
+
+# idk why this value is missing but idc
+df[2638, "median_household_income"] = 0
+
+df_tree[2638, "median_household_income"] = 0
+
+
+
+
+# #get logged and scaled data for tree models
+df_tree = read.csv("MLData_Tree.csv")
+# 
+# #drop risk score
+df_tree = df_tree %>% 
+  dplyr::select(-RISK_VALUE, -STCOFIPS, -STATE, -CFLD_EVNTS, -ERQK_EVNTS, -WFIR_EVNTS, -STATEABBRV, -SOVI_RATNG, -FEMALE_POP, -HISPANIC_LATINO_POP,
+                -MALE_POP, -OCCUPIED_HOUSING_UNITS, -OWNER_OCCUPIED_HOUSING_UNITS, -TOTAL_HOUSING_UNITS, -NAME, -X75_84_POP, -X65_74_POP, -X60_64_POP, -X10_14_POP, -X55_59_POP, -X25_34_POP, -X45_54_POP, -X35_44_POP, -ERQK_EXPT, -HAIL_EXPT, -SWND_EXPT, -TRND_EXPT, -VLCN_EXPT)
+
+
+# Exclude columns with "EAL" in their names
+df_tree <- df_tree[, !grepl("EAL", colnames(df_tree))]
+
+df_tree <- df_tree[, !grepl("_AREA", colnames(df_tree))]
+
+df_tree <- df_tree[, !grepl("_EXPB", colnames(df_tree))]
+
+df_tree <- df_tree[, !grepl("_EXPP", colnames(df_tree))]
+
+
+```
+
+
+# Risk is driven by Expected Annual Loss (EAL) and Social Vulnerability (SOVI),
+
+```{r}
+# # constant_columns <- sapply(df_tree, function(x) length(unique(x)) == 1)
+# # constant_columns[constant_columns == TRUE]
+# 
+# # colSums(is.na(df_tree))
+# 
+# # which(is.na(df_tree$median_household_income))
+# 
+# cor(df[,]) 
+# 
+# df_t = df %>%
+#   select(where(is.numeric))
+# 
+# 
+# 
+# 
+# 
+# 
+# ### Torin's test stuff
+# 
+# cor_matrix <- cor(df_t, use = "pairwise.complete.obs")
+# 
+# # Set threshold
+# threshold <- .99
+# 
+# # Convert the correlation matrix to a data frame
+# cor_df <- as.data.frame(as.table(cor_matrix))
+# 
+# # Filter for highly correlated pairs (excluding diagonal)
+# high_cor <- cor_df[abs(cor_df$Freq) > threshold & cor_df$Var1 != cor_df$Var2, ]
+# 
+# # Display result
+# high_cor %>%
+#   filter(Freq > .99) %>%
+#   count(Var2) %>%
+#   arrange(desc(n))
+# 
+# high_cor %>%
+#   filter(Var2 == "total_population_25_and_over")
+# 
+# high_cor %>%
+#   arrange(desc(Freq))
+# 
+# ### Maybe drop _EXPT
+# 
+# 
+# high_cor %>%
+#   filter(Var2 == "commute_min")
+# 
+# library(car)
+# vif(model)
+```
+
+
+# Train and Test Data
+
+# Load in the tree data when you actually need it since it takes up space in the RData file.
+```{r}
+### Scaled and Logged Data
+data_split <- initial_split(df, prop = 3/4)
+train_data <- training(data_split)
+holdout_data  <- testing(data_split)
+#code for the kfold cross validation needed
+folds <- vfold_cv(train_data, v = 5)
+
+
+# ### Tree Data
+ data_split_tree <- initial_split(df_tree, prop = 3/4)
+ train_data_tree <- training(data_split_tree)
+ holdout_data_tree  <- testing(data_split_tree)
+# #code for the folds needed with tree models
+folds_tree <- vfold_cv(train_data_tree, v = 5)
+```
+
+# Lasso to reduce dimensions
+```{r}
+# # Split the data into training and testing sets
+# set.seed(123)  # For reproducibility
+# data_split <- initial_split(df, prop = 0.8)
+# train_data <- training(data_split)
+# test_data <- testing(data_split)
+# 
+# # Define a recipe for preprocessing
+# lasso_recipe <- recipe(RISK_SCORE ~ ., data = train_data) %>%
+#   step_novel(all_nominal(), -all_outcomes()) %>%  # Step to handle unseen categories
+#   step_dummy(all_nominal(), -all_outcomes())
+# 
+# lasso_spec <- linear_reg(penalty = tune(), mixture = 1) %>%
+#   set_engine("glmnet")
+# 
+# 
+# # Combine recipe and model into a workflow
+# lasso_workflow <- workflow() %>%
+#   add_recipe(lasso_recipe) %>%
+#   add_model(lasso_spec)
+# 
+# # Create resamples for cross-validation
+# set.seed(123)
+# cv_folds <- vfold_cv(train_data, v = 10)
+# 
+# # Tune the penalty parameter
+# lasso_tune <- tune_grid(
+#   lasso_workflow,
+#   resamples = cv_folds,
+#   grid = 10,  # Number of penalty values to test
+#   metrics = metric_set(rmse)  # Evaluate using RMSE
+# )
+# 
+# # Show the best penalty value
+# best_lasso <- select_best(lasso_tune, metric = "rmse")
+# print(best_lasso)
+# 
+# # Finalize the workflow with the best penalty
+# final_lasso <- finalize_workflow(lasso_workflow, best_lasso)
+# 
+# # Fit the final model to the training data
+# lasso_fit <- fit(final_lasso, data = train_data)
+# 
+# # Extract the fitted model
+# lasso_model <- extract_fit_parsnip(lasso_fit)$fit
+# 
+# # Extract non-zero coefficients
+# important_features <- broom::tidy(lasso_model) %>%
+#   filter(estimate == 0) %>%
+#   arrange(desc(abs(estimate)))
+# 
+# # Display important features
+# print(important_features)
+# 
+# 
+#   ### Find useless features
+# 
+#   # Prepare the recipe
+#   prepared_recipe <- prep(lasso_recipe, training = train_data)
+#   
+#   # Apply the recipe to the original data (this is the transformed dataset)
+#   train_transformed <- bake(prepared_recipe, new_data = train_data)
+#   
+#   # Compare the original data columns to the transformed data columns
+#   original_columns <- colnames(train_data)
+#   transformed_columns <- colnames(train_transformed)
+#   
+#   # Find columns that were removed or altered
+#   removed_columns <- setdiff(original_columns, transformed_columns)
+#   added_columns <- setdiff(transformed_columns, original_columns)
+#   
+#   # View removed and added features
+#   removed_columns
+#   added_columns
+
+```
+
+
+# Engines for Normal Linear Regression, Elastic Net, and KNN.
+```{r}
+linreg <- linear_reg() %>% set_engine("lm")
+elastic <- linear_reg(penalty = tune(), mixture = tune()) %>% set_engine("glmnet")
+elastic_grid <- grid_regular(penalty(range = c(-4, 0)), mixture(range = c(0, 1)), levels = 20)
+knn <- nearest_neighbor(neighbors = tune()) %>% set_engine("kknn") %>% set_mode("regression")
+knn_grid <- grid_regular( neighbors(range = c(1, 40)), levels = 20    ) 
+```
+
+# Naive Model
+```{r}
+naive_recipe <- recipe(RISK_SCORE ~ 1, data=train_data) 
+naive_workflow <- workflow() %>% add_recipe(naive_recipe) %>% add_model(linreg)
+naive_results <- fit_resamples(naive_workflow,resamples = folds)
+collect_metrics(naive_results)
+```
+# Linear Regression, Elastic Net, and KNN.
+
+```{r}
+recipe <- recipe(RISK_SCORE ~ ., data = train_data) %>%  # Specify the target variable
+  step_novel(all_nominal_predictors()) %>%  # Handle unseen levels in categorical predictors
+  step_dummy(all_nominal_predictors()) %>%  # Replace categorical predictors with dummy variables
+  step_zv(all_predictors())  # Drop predictors with zero variance
+
+
+linreg_workflow <- workflow() %>% add_recipe(recipe) %>% add_model(linreg)
+linreg_results <- fit_resamples(linreg_workflow, resamples = folds)
+elastic_workflow <- workflow() %>% add_recipe(recipe) %>% add_model(elastic)
+elastic_results <- tune_grid(elastic_workflow, resamples = folds, grid = elastic_grid)
+knn_workflow <- workflow() %>% add_recipe(recipe) %>% add_model(knn)
+knn_results <- tune_grid(knn_workflow, resamples = folds, grid = knn_grid )
+
+collect_metrics(linreg_results)
+collect_metrics(elastic_results)
+collect_metrics(knn_results)
+```
+
+
+# Tree Models
+
+```{r }
+tree_recipe <- recipe(RISK_SCORE ~ ., data = train_data_tree)
+
+
+tree_grid <- grid_regular(
+  cost_complexity(range=c(-6, -4)),
+  tree_depth(range=c(5,15)),
+  min_n(range=c(5,20)),
+  levels = 3)
+tree_model <- decision_tree( cost_complexity = tune(), tree_depth = tune(), min_n = tune() ) %>% 
+  set_engine("rpart") %>% set_mode("regression")  
+tree_workflow <- workflow() %>% add_recipe(tree_recipe) %>% add_model(tree_model)
+
+tree_results <- tune_grid(tree_workflow,resamples = folds_tree,grid = tree_grid)
+
+collect_metrics(tree_results)
+
+
+
+
+forest_recipe <- recipe(RISK_SCORE ~ ., data=train_data)
+forest_model <- rand_forest(mtry = tune(),min_n = tune(), trees = 500) %>% 
+  set_engine("ranger") %>% set_mode("regression")  
+forest_grid <- expand.grid( mtry=c(50,100,150), min_n=c(10,20) )
+forest_workflow <- workflow() %>% add_recipe(forest_recipe) %>% add_model(forest_model)
+forest_results <- forest_workflow %>% tune_grid(resamples = folds, grid = forest_grid)
+
+show_best(forest_results, metric = "rmse")
+
+collect_metrics(forest_results)
+
+
+boosted_recipe <- recipe(RISK_SCORE ~ ., data=train_data) %>% step_dummy(all_nominal_predictors())  # Convert categorical predictors
+boosted_model <- boost_tree(trees = tune(), tree_depth = tune(), learn_rate = tune(), min_n = tune() ) %>% 
+  set_engine("xgboost") %>% set_mode("regression")  
+boosted_grid <- expand.grid( trees=c(400,500,800), 
+                             tree_depth=c(8,15),
+                             learn_rate=c(0.01),
+                             min_n = c(5) )
+boosted_workflow <- workflow() %>% add_recipe(boosted_recipe) %>% add_model(boosted_model)
+boosted_results <- boosted_workflow %>% tune_grid(resamples = folds, grid = boosted_grid)
+collect_metrics(boosted_results)
+
+xgboost_recipe <- recipe(RISK_SCORE ~ ., data=train_data) %>% 
+    step_dummy(all_nominal_predictors() ) # Convert categorical predictors
+xgboost_model <- boost_tree(
+  trees = tune(), tree_depth = tune(), learn_rate = tune(), 
+  min_n = tune(), loss_reduction=tune(), sample_size=tune(), mtry=tune() ) %>% 
+  set_engine("xgboost") %>% set_mode("regression")  
+xgboost_grid <- expand.grid(
+  tree_depth=c(10,15),min_n=c(10),mtry=c(10,15),trees=c(500,1000),
+  learn_rate=c(.01),loss_reduction=c(0.000003),sample_size=c(.5))
+xgboost_workflow <- workflow() %>% add_recipe(xgboost_recipe) %>% add_model(xgboost_model)
+xgboost_results <- xgboost_workflow %>% tune_grid(resamples = folds, grid = xgboost_grid_refined)
+
+xgboost_grid_refined <- expand.grid(
+  tree_depth=c(15,20,25),min_n=c(20),mtry=c(20,25),trees=c(1000, 1500),
+  learn_rate=c(.01),loss_reduction=c(0.000003),sample_size=c(.5))
+
+# 4.17
+collect_metrics(xgboost_results)
+show_best(xgboost_results, metric="rmse")
+```
+
+### Support vector machines
+
+```{r going through the support vector machine models}
+svm_recipe <- recipe(RISK_SCORE ~ ., data=train_data) %>%  #Tell it what you want to predict
+  step_normalize(all_numeric_predictors()) %>%    #Normalization required for regularization
+  step_dummy(all_nominal_predictors()) %>%   #Gotta replace categorical predictors with dummy variables
+  step_zv(all_predictors())   #If any predictors were identical throughout, drop them (doesn't apply here)
+
+
+svm_linear_model <- svm_linear(mode = "regression",cost = tune()) %>% set_engine("kernlab")
+svm_workflow_linear <- workflow() %>% add_model(svm_linear_model) %>% add_recipe(svm_recipe)
+grid_linear <- grid_regular( cost(range = c(-3, 8)), levels = 2 )
+#grid_linear <- expand.grid(cost=0.125)  #This is SO SLOW so only try one value
+svm_results_linear <- tune_grid(svm_workflow_linear,resamples=folds,grid = grid_linear,
+                                metrics = metric_set(rmse))
+show_best(svm_results_linear,metric="rmse",n=1)
+
+
+
+svm_poly_model <- svm_poly(mode = "regression",cost = tune(),degree = tune(),scale_factor = tune()) %>%
+  set_engine("kernlab")
+grid_poly <-  grid_regular(
+    cost(range = c(-2.5, -1.5)),       # Narrow range around 0.25 (2^(-2.5) to 2^(-1.5))
+    degree(range = c(2, 4)),           # Same range as before
+    scale_factor(range = c(-2.1, -1.9)), # Narrow range around 0.01
+    levels = 3                         # Increased resolution
+)
+#grid_poly <- expand.grid(cost=0.25,degree=c(3,4),scale_factor=0.01)
+svm_workflow_poly <- workflow() %>% add_model(svm_poly_model) %>% add_recipe(svm_recipe)
+svm_results_poly <- tune_grid(svm_workflow_poly,resamples=folds,grid = grid_poly,
+                                metrics = metric_set(rmse))
+
+show_best(svm_results_poly, metric="rmse")
+
+
+
+
+svm_rbf_model <- svm_rbf(mode = "regression",cost = tune(),rbf_sigma = tune()) %>%
+  set_engine("kernlab")
+grid_rbf <- grid_regular( cost(range = c(4,5)),rbf_sigma(range = c(-3, 2)), levels = 2 )
+svm_workflow_rbf <- workflow() %>% add_model(svm_rbf_model) %>% add_recipe(svm_recipe)
+svm_results_rbf <- tune_grid(svm_workflow_rbf,resamples=folds,grid = grid_rbf,
+                                metrics = metric_set(rmse))
+
+show_best(svm_results_rbf, metric="rmse")
+
+
+```
+
+
+### Simple neural network
+
+
+```{r going through the neural network}
+mlp_recipe <- recipe(RISK_SCORE ~ ., data=train_data) %>%  #Tell it what you want to predict
+  step_normalize(all_numeric_predictors()) %>%    #Normalization required for regularization
+  step_dummy(all_nominal_predictors()) %>%   #Gotta replace categorical predictors with dummy variables
+  step_zv(all_predictors())   #If any predictors were identical throughout, drop them (doesn't apply here)
+
+mlp_model <- mlp(
+  hidden_units = tune(),   # Number of units per hidden layer
+  penalty = tune(),        # Regularization term
+  epochs = tune()          # Number of training epochs
+) %>% 
+  set_engine("nnet") %>%   # For basic neural networks in R
+  set_mode("regression")  # Or "regression" for regression tasks
+
+mlp_workflow <- workflow() %>% add_recipe(mlp_recipe) %>% add_model(mlp_model)
+
+# Set up a tuning grid
+mlp_grid <- grid_regular(
+  hidden_units(range = c(20,30)), 
+  penalty(range(-2,-1.2)),
+  epochs(range = c(600,800)), levels = 2)
+
+
+set.seed(542); mlp_results <- tune_grid(
+  mlp_workflow,
+  resamples = folds,
+  grid = mlp_grid,
+  metrics = metric_set(rmse)
+)
+
+show_best(mlp_results,metric="rmse",n=3)
+```
+
+
+# Analyisis
+```{r }
+RMSE <- bind_rows(
+  show_best(naive_results,metric="rmse"),
+  show_best(linreg_results,metric="rmse"),
+  show_best(elastic_results,n=1,metric="rmse"),
+  show_best(knn_results,n=1,metric="rmse"),
+  show_best(tree_results,n=1,metric="rmse"),
+  show_best(boosted_results,n=1,metric="rmse"),
+  show_best(xgboost_results,n=1,metric="rmse"),
+  show_best(forest_results,n=1,metric="rmse"),
+  show_best(svm_results_linear,n=1,metric="rmse"),
+  show_best(svm_results_poly,n=1,metric="rmse"),
+  show_best(svm_results_rbf,n=1,metric="rmse")
+  
+)
+RMSE$name <- c("naive","linear",
+                   "elastic",
+                   "knn","tree", "boosted", "xgboosted","forest",
+               "svm+linear","svm+poly", 
+               "svm+rbf")
+RMSE %>% arrange( mean ) %>% dplyr::select(mean,std_err,name)
+
+threshold <- min(RMSE$mean) + RMSE$std_err[which.min(RMSE$mean)]
+
+#All the results
+ggplot(RMSE, aes(x = reorder(name, mean), y = mean)) +
+  geom_point(size = 3, color = "steelblue") +  # Dot plot
+  geom_errorbar(aes(ymin = mean - std_err, ymax = mean + std_err), width = 0.2) +  # Error bars
+  geom_hline(yintercept = threshold, linetype = "solid", color = "red", size = 1) +  # Vertical line
+  labs(x = "Model", y = "Mean RMSE", title = "Model Performance Comparison") +
+  coord_flip() +  # Flip coordinates for better readability
+  theme_minimal()
+
+#Zoom in on the better ones
+ggplot(RMSE %>% filter(mean<=10), aes(x = reorder(name, mean), y = mean)) +
+  geom_point(size = 3, color = "steelblue") +  # Dot plot
+  geom_errorbar(aes(ymin = mean - std_err, ymax = mean + std_err), width = 0.2) +  # Error bars
+  geom_hline(yintercept = threshold, linetype = "solid", color = "red", size = 1) +  # Vertical line 
+  ylim(0, 10) +
+  labs(x = "Model", y = "Mean RMSE", title = "Model Performance Comparison") +
+  coord_flip() +  # Flip coordinates for better readability
+  theme_minimal()
+
+```
+
+```{r rf explainer }
+library(DALEX)
+library(DALEXtra)
+best_params <- select_best(xgboost_results, metric = "rmse")
+final_xgboost_workflow <- finalize_workflow(xgboost_workflow, best_params)
+final_xgboost_fit <- fit(final_xgboost_workflow, data = training(data_split))
+
+# Generate predictions on the holdout sample
+holdout_predictions <- predict(final_xgboost_fit, new_data = testing(data_split)) %>%
+  bind_cols(testing(data_split))
+
+# Evaluate metrics on the holdout set
+holdout_metrics <- holdout_predictions %>%
+  metrics(truth = RISK_SCORE, estimate = .pred)
+
+# View results
+holdout_metrics
+
+# visual represenation
+holdout_predictions %>%
+  ggplot(aes(x = .pred, y = RISK_SCORE)) +
+  geom_point(alpha = 0.3) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "solid") +
+  labs(
+    title = "Predicted vs Actual on Holdout Set",
+    x = "Predicted",
+    y = "Actual"
+  )+theme_minimal()
+
+
+
+# Finalize the random forest model using the best parameters
+final_xgboosted_model <- finalize_model(xgboost_model, select_best(xgboost_results, metric = "rmse"))
+final_xgboosted_workflow <- xgboost_workflow %>% update_model(final_xgboosted_model)
+
+# Fit the finalized model on the entire dataset
+final_xgboosted_fit <- fit(final_xgboosted_workflow, data = df)
+
+
+# Create an explainer for the model
+explainer_xgboosted <- explain_tidymodels(
+  final_xgboosted_fit,
+  data = df %>% dplyr::select(-RISK_SCORE),  # Exclude target variable from the data
+  y = df$RISK_SCORE,                       # Target variable (rating)
+  label = "Final xgboosted Model"
+)
+
+# Set seed for reproducibility and calculate feature importance
+set.seed(542)
+forest_varimp <- model_parts(explainer_xgboosted, loss_function = loss_root_mean_square)
+
+# Plot the variable importance
+plot(forest_varimp, max_vars = 15) +
+  labs(
+    title = "Feature Importance",
+    subtitle = "Main drivers of Risk Score",
+    x = "",
+    y = ""
+  ) +
+  theme(strip.text.x = element_blank())
+
+# Print the variable importance to the console
+forest_varimp
+
+```
+#intercations
+
+```{r }
+
+set.seed(542); interaction_profile <- model_profile(
+  explainer_xgboosted,
+  type = "partial",
+  variables = "UNDER_5_POP"
+)
+
+
+plot(interaction_profile) +
+  labs(
+    title = "Partial Dependence of Risk Score on 'UNDER_5_POP' Variable",
+    subtitle = "",
+    x = "UNDER_5_POP",
+    y = "Predicted Risk Score"
+  ) +
+  theme(legend.position = "none")  # Removes the legend entirely
+
+
+
+
+set.seed(542); interaction_profile1 <- model_profile(
+  explainer_xgboosted,
+  type = "partial",
+  variables = "NATIVE_POP"
+)
+
+
+# Plot the partial dependence for 'NATIVE_POP'
+plot(interaction_profile1) +
+  labs(
+    title = "Partial Dependence of Risk Score on 'NATIVE_POP' Variable",
+    subtitle = "",
+    x = "NATIVE_POP",
+    y = "Predicted Risk Score"
+  )
+```
+
+```{r}
+rm(list = setdiff(ls(), ls(pattern = "_results|xgboosted")))
+
+
+
+save.image(file = "ML_Workspace.RData", compress = "xz")
+```
+
+
+```{r }
+# #more comlex interaction plots that we do not need in my opinion
+# library(dplyr)
+# 
+# # Step 1: Bin 'median_household_income' into Low, Medium, High
+# df1 <- df %>%
+#   mutate(
+#     income_group = case_when(
+#       median_household_income <= quantile(median_household_income, 0.33, na.rm = TRUE) ~ "Low",
+#       median_household_income <= quantile(median_household_income, 0.66, na.rm = TRUE) ~ "Medium",
+#       TRUE ~ "High"
+#     )
+#   )
+# 
+# # Step 2: Update the explainer with the modified dataset
+# explainer_xgboosted <- explain_tidymodels(
+#   final_xgboosted_fit,
+#   data = df1 %>% dplyr::select(-RISK_SCORE),  # Exclude raw median_income column
+#   y = df$RISK_SCORE,
+#   label = "Final xgboosted Model"
+# )
+# 
+# # Step 3: Create interaction profile using 'income_group'
+# set.seed(542)
+# interaction_profile <- model_profile(
+#   explainer_xgboosted,
+#   type = "partial",
+#   groups = "income_group",  # Use the newly created income group
+#   variables = "UNDER_5_POP"
+# )
+# 
+# # Step 4: Plot the partial dependence
+# plot(interaction_profile) +
+#   labs(
+#     title = "Partial Dependence of Risk Score on 'UNDER_5_POP' Grouped by Income",
+#     subtitle = "How levels of 'UNDER_5_POP' influence Risk Score across income groups",
+#     x = "UNDER_5_POP",
+#     y = "Predicted Risk Score"
+#   )
+
+
+
+```
+
+

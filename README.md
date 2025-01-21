@@ -16,8 +16,8 @@ This project was developed as part of a collaboration with the following contrib
   NRI Project:
     Includes an R Markdown file with data cleaning/engineering steps and the model-building process, as well as a presentation of the findings.
 This project was developed as part of a collaboration with the following contributors:
-  - Muriel Kroflin
-  - Torin Daily
+  - Muriel Kroflin (Model fitting)
+  - Torin Daily (Data cleaning)
 
 # Feature Store Data Engineering Project 
   Engineering Project: 
